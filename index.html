@@ -284,9 +284,9 @@ hr.divider{border:none;border-top:1px solid var(--brd);margin:16px 0}
 <div class="modal-overlay" id="modal-boleto">
 <div class="modal">
   <button class="modal-close" onclick="closeModal('modal-boleto')">✕</button>
-  <h3 id="modal-boleto-title">Novo Boleto / Conta</h3>
+  <h3 id="modal-boleto-title">Nova Conta a Pagar</h3>
   <input type="hidden" id="mb-id">
-  <div class="form-full"><label>Descrição</label><input id="mb-desc" type="text" placeholder="Ex: Energia elétrica, Aluguel..."></div>
+  <div class="form-full"><label>Descrição</label><input id="mb-desc" type="text" placeholder="Ex: Energia elétrica, Aluguel, Fornecedor..."></div>
   <div class="form-row">
     <div><label>Valor (R$)</label><input id="mb-valor" type="number" step="0.01" placeholder="0,00"></div>
     <div><label>Vencimento</label><input id="mb-venc" type="date"></div>
@@ -505,7 +505,7 @@ function showApp() {
 const PAGE_TITLES = {
   dashboard:'Dashboard', lancamento:'Novo Lançamento', fechamento:'Fechamento do Dia',
   relatorio:'Relatório Mensal', contas:'Contas Bancárias', funcionarias:'Funcionárias',
-  boletos:'Boletos e Contas', config:'Configurações'
+  boletos:'Contas a Pagar', config:'Configurações'
 };
 
 function showPage(page) {
@@ -643,7 +643,7 @@ async function renderLancamento() {
       <div class="card-title">📋 Dados do Caixa</div>
       <div class="form-row">
         <div><label>Data</label><input id="l-data" type="date" value="${hoje}"></div>
-        <div><label>Número do Caixa</label><input id="l-caixa" type="text" placeholder="Ex: 001, Caixa A..."></div>
+        <div><label>Número do Caixa</label><input id="l-caixa" type="text" placeholder="Ex: 001, Caixa A... (opcional)"></div>
       </div>
       <div class="form-row">
         <div><label>Funcionária responsável</label>
@@ -728,6 +728,7 @@ function addSaida() {
           <option value="transferencia_ar">🏦 Transf. AR Damasceno</option>
           <option value="boleto_ar">📑 Boleto (AR Damasceno)</option>
           <option value="cartao_ar">💳 Cartão (AR Damasceno)</option>
+          <option value="pix_ar">💠 Pix (AR Damasceno)</option>
         </select>
       </div>
       <div style="display:flex;align-items:flex-end">
@@ -780,7 +781,7 @@ async function salvarLancamento() {
   const cred = parseFloat(document.getElementById('l-cred').value)||0;
   const deb = parseFloat(document.getElementById('l-deb').value)||0;
 
-  if(!data || !caixa) { showToast('Preencha data e número do caixa!','warn'); return; }
+  if(!data) { showToast('Preencha a data do lançamento!','warn'); return; }
 
   const totEnt = pix+din+cred+deb;
   let totSai = 0;
@@ -795,7 +796,7 @@ async function salvarLancamento() {
     const funcValeId = funcSel?.value||null;
     if(valor > 0) {
       totSai += valor;
-      const contaDebito = forma.includes('mp') ? 'mercado_pago' : forma.includes('ar') ? 'ar_damasceno' : 'dinheiro';
+      const contaDebito = forma.includes('mp') ? 'mercado_pago' : (forma.includes('ar') || forma === 'pix_ar') ? 'ar_damasceno' : 'dinheiro';
       saidasItems.push({ tipo, valor, descricao:desc, forma_pagamento:forma, conta_debito:contaDebito, funcionaria_id: tipo==='funcionario'&&funcValeId?funcValeId:null });
     }
   });
@@ -838,6 +839,7 @@ async function salvarLancamento() {
     }
 
     // Auto-register MP entries (Pix + Credit + Debit)
+    if(!caixa) caixa = "Geral";
     const totMP = pix + cred + deb;
     if(totMP > 0) {
       await sb.from('movimentacoes').insert({
@@ -1009,7 +1011,7 @@ async function loadRelatorio() {
     <div class="card"><div class="card-title">📅 Lançamentos Diários</div>
       <div class="table-wrap"><table><thead><tr><th>Data</th><th>Caixa</th><th>Funcionária</th><th>Clientes</th><th>Entradas</th><th>Saídas</th><th>Saldo</th></tr></thead><tbody>${lDiarioHtml}</tbody></table></div>
     </div>
-    ${boletos.length>0?`<div class="card"><div class="card-title">📑 Boletos do Mês</div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th></tr></thead><tbody>${boletosHtml}</tbody></table></div></div>`:''}
+    ${boletos.length>0?`<div class="card"><div class="card-title">📑 Contas a Pagar do Mês</div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th></tr></thead><tbody>${boletosHtml}</tbody></table></div></div>`:''}
     ${salarios.length>0?`<div class="card"><div class="card-title">👩‍💼 Salários do Mês</div><div class="table-wrap"><table><thead><tr><th>Funcionária</th><th>Salário Base</th><th>Vales</th><th>Valor Pago</th><th>Status</th></tr></thead><tbody>${salHtml}</tbody></table></div></div>`:''}`;
   } catch(e) {
     c.innerHTML = `<div class="alert alert-danger">Erro: ${e.message}</div>`;
@@ -1130,15 +1132,38 @@ async function registrarTransferencia() {
 // ============================================================
 // FUNCIONÁRIAS
 // ============================================================
+// Variável global para controle do mês visualizado nas funcionárias
+let mesFuncAtual = new Date().toISOString().slice(0,7);
+
+function mesFuncAnterior() {
+  const [ano, mes] = mesFuncAtual.split('-').map(Number);
+  const d = new Date(ano, mes-2, 1);
+  mesFuncAtual = d.toISOString().slice(0,7);
+  renderFuncionarias();
+}
+function mesFuncProximo() {
+  const [ano, mes] = mesFuncAtual.split('-').map(Number);
+  const d = new Date(ano, mes, 1);
+  mesFuncAtual = d.toISOString().slice(0,7);
+  renderFuncionarias();
+}
+function fmtMesBR(mesStr) {
+  const [ano, mes] = mesStr.split('-');
+  const nomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  return nomes[parseInt(mes)-1] + '/' + ano;
+}
+
 async function renderFuncionarias() {
   const c = document.getElementById('page-content');
   showLoading(true);
   try {
     const { data: funcs } = await sb.from('funcionarias').select('*,usuarios(username)').eq('ativo',true);
-    const mesAtualStr = new Date().toISOString().slice(0,7);
-    const mesAnt = getMesAnterior();
+    const mesSel = mesFuncAtual;
+    // Mês seguinte ao selecionado (vales pegados no mês selecionado são descontados no próximo)
+    const [anoS, mesS] = mesSel.split('-').map(Number);
+    const proxMesDate = new Date(anoS, mesS, 1);
+    const proxMes = proxMesDate.toISOString().slice(0,7);
 
-    // Load vales and salaries for each func
     const funcIds = (funcs||[]).map(f=>f.id);
     const [valesRes, salRes] = await Promise.all([
       sb.from('vales').select('*').in('funcionaria_id',funcIds.length?funcIds:['none']),
@@ -1147,7 +1172,15 @@ async function renderFuncionarias() {
     const vales = valesRes.data||[];
     const salarios = salRes.data||[];
 
-    let html = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    const mesAtualReal = new Date().toISOString().slice(0,7);
+
+    let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--brd);border-radius:8px;padding:6px 12px">
+        <button onclick="mesFuncAnterior()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--p)">◀️</button>
+        <span style="font-weight:700;color:var(--p);min-width:130px;text-align:center">${fmtMesBR(mesSel)}</span>
+        <button onclick="mesFuncProximo()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--p)">▶️</button>
+      </div>
       ${currentUser.role==='admin'?`<button class="btn-primary" onclick="openModalFunc()">➕ Nova Funcionária</button>`:''}
     </div>`;
 
@@ -1155,18 +1188,31 @@ async function renderFuncionarias() {
       html += '<div class="empty-state"><div class="icon">👩‍💼</div><p>Nenhuma funcionária cadastrada.</p></div>';
     } else {
       funcs.forEach(f => {
-        const valesMesAnt = vales.filter(v=>v.funcionaria_id===f.id&&v.mes_desconto===mesAtualStr);
-        const totValesDesc = valesMesAnt.reduce((s,v)=>s+v.valor,0);
-        const valesMesAtual = vales.filter(v=>v.funcionaria_id===f.id&&v.mes_desconto===mesAtualStr);
-        const totValesMesAtual = valesMesAtual.reduce((s,v)=>s+v.valor,0);
-        const salarioMes = salarios.find(s=>s.funcionaria_id===f.id&&s.mes_referencia===mesAtualStr);
+        // Vales do mês selecionado (lançados nesse mês)
+        const valesMesSel = vales.filter(v=>v.funcionaria_id===f.id && v.data && v.data.slice(0,7)===mesSel);
+        const totValesMesSel = valesMesSel.reduce((s,v)=>s+v.valor,0);
+
+        // Vales que serão descontados no mês selecionado (mes_desconto = mesSel)
+        const valesDescMesSel = vales.filter(v=>v.funcionaria_id===f.id&&v.mes_desconto===mesSel);
+        const totValesDesc = valesDescMesSel.reduce((s,v)=>s+v.valor,0);
+
+        // Vales que serão descontados no próximo mês (pegados no mês selecionado)
+        const valesProxMes = vales.filter(v=>v.funcionaria_id===f.id&&v.mes_desconto===proxMes);
+        const totValesProxMes = valesProxMes.reduce((s,v)=>s+v.valor,0);
+
+        const salarioMes = salarios.find(s=>s.funcionaria_id===f.id&&s.mes_referencia===mesSel);
         const valorPagar = (f.salario_fixo||0) - totValesDesc;
+        const valorProxMes = (f.salario_fixo||0) - totValesProxMes;
+        const isCurrentMonth = mesSel === mesAtualReal;
+
+        // Histórico de salários pagos
+        const salPagos = salarios.filter(s=>s.funcionaria_id===f.id&&s.pago).sort((a,b)=>b.mes_referencia.localeCompare(a.mes_referencia));
 
         html += `<div class="funcionaria-card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
             <div>
               <h4>👩‍💼 ${f.nome}</h4>
-              <small style="color:var(--txt2)">Login: ${f.usuarios?.username||'–'} &nbsp;|&nbsp; Dia pagamento: ${f.dia_pagamento||5}</small>
+              <small style="color:var(--txt2)">Login: ${f.usuarios?.username||'–'} &nbsp;|&nbsp; Paga todo dia ${f.dia_pagamento||5}</small>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               ${currentUser.role==='admin'?`
@@ -1175,23 +1221,39 @@ async function renderFuncionarias() {
             </div>
           </div>
           <hr class="divider">
+
           <div class="grid-2">
             <div>
-              <div class="info-row"><span class="k">Salário fixo</span><span class="v">${fmtMoeda(f.salario_fixo)}</span></div>
-              <div class="info-row"><span class="k">Vales (desc. este mês)</span><span class="v" style="color:var(--err)">– ${fmtMoeda(totValesDesc)}</span></div>
-              <div class="info-row" style="font-weight:700"><span class="k">💰 A pagar este mês</span><span class="v" style="color:var(--p)">${fmtMoeda(valorPagar)}</span></div>
-              ${salarioMes?`<div class="info-row"><span class="k">Status pagamento</span><span class="v"><span class="badge ${salarioMes.pago?'badge-green':'badge-yellow'}">${salarioMes.pago?'✅ Pago':'⏳ Pendente'}</span></span></div>`:''}
+              <div style="font-size:12px;font-weight:700;color:var(--p);margin-bottom:6px">📅 ${fmtMesBR(mesSel)}</div>
+              <div class="info-row"><span class="k">Salário base</span><span class="v">${fmtMoeda(f.salario_fixo)}</span></div>
+              <div class="info-row"><span class="k">Vales a descontar</span><span class="v" style="color:var(--err)">– ${fmtMoeda(totValesDesc)}</span></div>
+              <div class="info-row" style="font-weight:700;font-size:14px"><span class="k">💰 A pagar</span><span class="v" style="color:var(--p)">${fmtMoeda(valorPagar)}</span></div>
+              ${salarioMes?`<div class="info-row"><span class="k">Status</span><span class="v"><span class="badge ${salarioMes.pago?'badge-green':'badge-yellow'}">${salarioMes.pago?'✅ Pago em '+fmtDataBr(salarioMes.data_pagamento):'⏳ Pendente'}</span></span></div>`:'<div class="info-row"><span class="k">Status</span><span class="v"><span class="badge badge-gray">Não registrado</span></span></div>'}
             </div>
             <div>
-              <div style="font-size:12px;font-weight:700;color:var(--p);margin-bottom:6px">Vales este mês:</div>
-              ${valesMesAtual.length>0?valesMesAtual.map(v=>`<div class="info-row"><span class="k">${fmtDataBr(v.data)}</span><span class="v">${fmtMoeda(v.valor)}</span></div>`).join(''):'<p style="color:var(--txt2);font-size:12px">Sem vales este mês.</p>'}
-              <div class="info-row" style="font-weight:700"><span class="k">Total vales</span><span class="v">${fmtMoeda(totValesMesAtual)}</span></div>
+              <div style="font-size:12px;font-weight:700;color:var(--p);margin-bottom:6px">💸 Vales em ${fmtMesBR(mesSel)}</div>
+              ${valesMesSel.length>0?valesMesSel.map(v=>`<div class="info-row"><span class="k">${fmtDataBr(v.data)}</span><span class="v">${fmtMoeda(v.valor)}</span></div>`).join(''):'<p style="color:var(--txt2);font-size:12px">Sem vales neste mês.</p>'}
+              ${valesMesSel.length>0?`<div class="info-row" style="font-weight:700"><span class="k">Total vales</span><span class="v">${fmtMoeda(totValesMesSel)}</span></div>`:''}
+              <div style="margin-top:8px;padding:8px;background:#fff3cd;border-radius:6px;font-size:12px">
+                <strong>📌 Impacto no próximo mês (${fmtMesBR(proxMes)}):</strong><br>
+                Vales a descontar: <strong style="color:var(--err)">– ${fmtMoeda(totValesProxMes)}</strong><br>
+                Salário a pagar: <strong style="color:var(--p)">${fmtMoeda(valorProxMes)}</strong>
+              </div>
             </div>
           </div>
-          ${currentUser.role==='admin'&&!salarioMes?.pago?`
+
+          ${currentUser.role==='admin'&&isCurrentMonth&&!salarioMes?.pago?`
           <div style="margin-top:10px">
-            <button class="btn-success btn-block" onclick="openModalSalario('${f.id}','${f.nome}',${f.salario_fixo||0},${totValesDesc},'${mesAtualStr}')">✅ Pagar Salário — ${fmtMoeda(valorPagar)}</button>
+            <button class="btn-success btn-block" onclick="openModalSalario('${f.id}','${f.nome}',${f.salario_fixo||0},${totValesDesc},'${mesSel}')">✅ Pagar Salário de ${fmtMesBR(mesSel)} — ${fmtMoeda(valorPagar)}</button>
           </div>`:''}
+
+          ${salPagos.length>0?`
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;color:var(--p);font-size:13px;font-weight:600">📋 Histórico de pagamentos (${salPagos.length})</summary>
+            <div style="margin-top:8px">
+              ${salPagos.slice(0,6).map(s=>`<div class="info-row"><span class="k">${fmtMesBR(s.mes_referencia)}</span><span class="v">${fmtMoeda(s.valor_pago)} <span class="badge badge-green">Pago</span></span></div>`).join('')}
+            </div>
+          </details>`:''}
         </div>`;
       });
     }
@@ -1357,12 +1419,12 @@ async function renderBoletos() {
 
     c.innerHTML = `
     <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
-      ${currentUser.role==='admin'?`<button class="btn-primary" onclick="openModalBoleto()">➕ Novo Boleto</button>`:''}
+      ${currentUser.role==='admin'?`<button class="btn-primary" onclick="openModalBoleto()">➕ Nova Conta a Pagar</button>`:''}
     </div>
     <div class="card"><div class="card-title">⏳ Boletos Pendentes (${pend.length})</div>
       ${pend.length>0?`<div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ação</th></tr></thead><tbody>${pend.map(renderBoleto).join('')}</tbody></table></div>`:'<p style="color:var(--txt2)">Nenhum boleto pendente. ✅</p>'}
     </div>
-    ${pagos.length>0?`<div class="card"><div class="card-title">✅ Boletos Pagos (${pagos.length})</div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ação</th></tr></thead><tbody>${pagos.map(renderBoleto).join('')}</tbody></table></div></div>`:''}`;
+    ${pagos.length>0?`<div class="card"><div class="card-title">✅ Contas Pagas (${pagos.length})</div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ação</th></tr></thead><tbody>${pagos.map(renderBoleto).join('')}</tbody></table></div></div>`:''}`;
   } catch(e) {
     c.innerHTML = `<div class="alert alert-danger">Erro: ${e.message}</div>`;
   }
@@ -1371,7 +1433,7 @@ async function renderBoletos() {
 
 function openModalBoleto(id) {
   document.getElementById('mb-id').value = id||'';
-  document.getElementById('modal-boleto-title').textContent = id ? 'Editar Boleto' : 'Novo Boleto';
+  document.getElementById('modal-boleto-title').textContent = id ? 'Editar Conta a Pagar' : 'Novo Boleto';
   if(!id) { document.getElementById('mb-desc').value=''; document.getElementById('mb-valor').value=''; document.getElementById('mb-venc').value=''; document.getElementById('mb-conta').value=''; }
   openModal('modal-boleto');
 }
