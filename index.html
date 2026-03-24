@@ -183,6 +183,7 @@ hr.divider{border:none;border-top:1px solid var(--brd);margin:16px 0}
 </style>
 </head>
 <body>
+  <input type="text" id="buscar" placeholder="Buscar..." style="padding:10px; width:100%; margin-bottom:10px;">
 
 <!-- LOADING -->
 <div id="loading-overlay"><div class="spinner"></div><span>Carregando...</span></div>
@@ -487,25 +488,34 @@ function fazerLogout() {
 function showLogin() {
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('buscar').style.display = 'none';
 }
 
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').style.display = 'block';
+  document.getElementById('buscar').style.display = 'block';
   document.getElementById('sidebar-username').textContent = currentUser.nome;
   if (currentUser.role !== 'admin') {
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
   }
   showPage('dashboard');
 }
+  
+}
 
 // ============================================================
 // NAVIGATION
 // ============================================================
 const PAGE_TITLES = {
-  dashboard:'Dashboard', lancamento:'Novo Lançamento', fechamento:'Fechamento do Dia',
-  relatorio:'Relatório Mensal', contas:'Contas Bancárias', funcionarias:'Funcionárias',
-  boletos:'Contas a Pagar', config:'Configurações'
+  dashboard: 'Dashboard',
+  lancamento: 'Novo Lançamento',
+  fechamento: 'Fechamento do Dia',
+  relatorio: 'Relatório Mensal',
+  contas: 'Contas Bancárias',
+  funcionarias: 'Funcionárias',
+  boletos: 'Contas a Pagar',
+  config: 'Configurações'
 };
 
 function showPage(page) {
@@ -525,7 +535,8 @@ function showPage(page) {
     case 'funcionarias': renderFuncionarias(); break;
     case 'boletos': renderBoletos(); break;
     case 'config': renderConfig(); break;
-  }
+  } 
+setTimeout(aplicarBuscaAtual, 200);
 }
 
 function toggleSidebar() {
@@ -1662,5 +1673,15 @@ function showToast(msg, tipo='info') {
   setTimeout(() => t.remove(), 4000);
 }
 </script>
-</body>
+<script>
+document.getElementById('buscar').addEventListener('input', function() {
+    let valor = this.value.toLowerCase();
+    let itens = document.querySelectorAll('.item'); 
+
+    itens.forEach(function(item) {
+        let texto = item.innerText.toLowerCase();
+        item.style.display = texto.includes(valor) ? '' : 'none';
+    });
+});
+</script></body>
 </html>
